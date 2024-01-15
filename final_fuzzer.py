@@ -2,14 +2,13 @@ from fuzzingbook.Grammars import Grammar, Expansion, srange
 
 from fuzzingbook.GrammarFuzzer import GrammarFuzzer
 from isla.solver import ISLaSolver, SemanticError
-from fuzzingbook.Parser import EarleyParser, display_tree
+from fuzzingbook.Parser import EarleyParser
 from fuzzingbook.MutationFuzzer import FunctionCoverageRunner
 from fuzzingbook.GreyboxGrammarFuzzer import (
     FragmentMutator,
     PowerSchedule,
     LangFuzzer,
     SeedWithStructure,
-    print_stats,
 )
 from fuzzingbook.Coverage import population_coverage
 from fuzzingbook.GrammarCoverageFuzzer import (
@@ -23,7 +22,6 @@ import time
 from typing import List
 import string
 import csv
-import logging
 from pandas.errors import ParserError, EmptyDataError
 import pandas as pd
 
@@ -31,6 +29,11 @@ from tqdm import tqdm
 
 from ordered_set import OrderedSet
 
+
+# # Grammar
+print("#####################")
+print("CSV Grammar")
+print("#####################")
 
 list_ascii_printable = list(string.printable)
 list_ascii_printable.remove('"')
@@ -87,6 +90,12 @@ solver = ISLaSolver(
                     """,
 )
 
+# # Step 1: generate valid seeds
+print("#####################")
+print("Step 1 : generate valid seeds")
+print("#####################")
+
+
 seeds: list[SeedWithStructure] = []
 syntax_erroneous_inputs = []
 semantic_erroneous_inputs = []
@@ -105,27 +114,17 @@ def parse_input(input: str) -> str:
 
 
 def fuzz_for_seeds(fuzzer: GrammarFuzzer):
-    error = False
     fuzz = fuzzer.fuzz()
 
     try:
-        solver.parse(fuzz)
+        solver.parse(fuzz, silent=True)
     except SyntaxError as e:
         syntax_erroneous_inputs.append(fuzz)
-        error = True
+
     except SemanticError as e:
         semantic_erroneous_inputs.append(fuzz)
-        error = True
-
-    try:
-        seeds.append(SeedWithStructure(parse_input(fuzz)))
-    except ParserError as e:
-        if not error:
-            logging.error("ParserError : " + str(e) + "\n" + fuzz + "\n")
-
-    except EmptyDataError as e:
-        if not error:
-            logging.error("EmptyDataError : " + str(e) + "\n" + fuzz + "\n")
+    else:
+        seeds.append(SeedWithStructure(fuzz))
 
 
 seeds: list[SeedWithStructure] = []
@@ -139,6 +138,14 @@ for i in tqdm(range(total_coverage)):
             dup_gram_cov_fuzzer.max_expansion_coverage()
             - dup_gram_cov_fuzzer.expansion_coverage()
         )
+
+
+print("%d valid seeds created" % len(seeds))
+
+
+print("#####################")
+print("Step 2 : Generate fuzz")
+print("#####################")
 
 
 n = 1000
@@ -182,37 +189,45 @@ def sort_seed(seed: Seed) -> int:
 
 coverage, _ = population_coverage(lang_fuzzer.inputs, parse_input)
 
-has_structure = 0
 for seed in lang_fuzzer.inputs:
     # reuse memoized information
     if hasattr(seed, "has_structure"):
-        has_structure += sort_seed(seed)  # type: ignore
+        sort_seed(seed)  # type: ignore
     else:
         if isinstance(seed, str):
             seed = Seed(seed)
-        has_structure += sort_seed(seed)
+        sort_seed(seed)
 
+total_inputs = (
+    len(parsed_inputs) + len(syntax_error) + len(semantic_error) + len(other_error)
+)
 
 print(
-    "From the %d generated inputs, %d (%0.2f%%) can be parsed.\n"
+    "From the %d different generated inputs, %d (%0.2f%%) can be parsed.\n"
     "In total, %d statements are covered."
     % (
-        len(lang_fuzzer.inputs),
-        has_structure,
-        100 * has_structure / len(lang_fuzzer.inputs),
+        total_inputs,
+        len(parsed_inputs),
+        100 * len(parsed_inputs) / total_inputs,
         len(coverage),
     )
 )
 
 print("The lang fuzzer generated :")
-print("Correct input number: ")
-print(len(parsed_inputs))
-print("Syntax error number: ")
-print(len(syntax_error))
-print("Semantic error number: ")
-print(len(semantic_error))
-print("Other error number: ")
-print(len(other_error))
+print("-----------------------------")
+print("# Correct inputs: %d" % len(parsed_inputs))
+
+print("# Invalid syntax inputs: %d" % len(syntax_error))
+
+print("# Invalid semantic inputs: %d" % len(semantic_error))
+
+print("# Other errors inputs: %d" % len(other_error))
+print("-----------------------------")
+
+
+print("#####################")
+print("Step 3 : Check inputs on the target function")
+print("#####################")
 
 
 wrongly_parsed_inputs = []
@@ -272,15 +287,23 @@ for other_error_input in other_error:
     check_other_incorrect_input(other_error_input)
 
 
-print("Good inputs but rejected by the parser:")
-print(len(wrongly_parsed_inputs))
+print("Correctly handled inputs :")
+print("-----------------------------")
+print("# wrongly handled inputs: %d" % len(wrongly_parsed_inputs))
 print(wrongly_parsed_inputs)
-print("Syntax errors not detected by the parser:")
-print(len(wrongly_parsed_inputs_syntax))
+print("-------")
+print(
+    "# wrongly handled syntaxically wrong inputs: %d"
+    % len(wrongly_parsed_inputs_syntax)
+)
 print(wrongly_parsed_inputs_syntax)
-print("Semantic errors not detected by the parser:")
-print(len(wrongly_parsed_inputs_semantic))
+print("-------")
+print(
+    "# wrongly handled semantically wrong inputs: %d"
+    % len(wrongly_parsed_inputs_semantic)
+)
 print(wrongly_parsed_inputs_semantic)
-print("Other errors not detected by the parser:")
+print("-------")
+print("# wrongly handled other wrong inputs: %d" % len(wrongly_parsed_inputs_other))
 print(wrongly_parsed_inputs_other)
-print(len(wrongly_parsed_inputs_other))
+print("-----------------------------")
