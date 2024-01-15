@@ -1,2 +1,5 @@
 fuzzingbook==1.2.1
+isla_solver==1.14.3
+ordered_set==4.1.0
 pandas==2.1.4
+tqdm==4.66.1
